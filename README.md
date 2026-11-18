@@ -43,3 +43,9 @@ swift test
 bash Scripts/build-ipa.sh
 
 Windows无需Xcode；后续提交代码即可获取新IPA。ZIPFoundation固定0.9.19（MIT）：https://github.com/weichsel/ZIPFoundation/blob/0.9.19/LICENSE
+
+## 1.3.1 SideStore 注册名称兼容修复
+
+针对 Apple 拒绝 appIdName=摸鱼日历 的安装错误，根 Info.plist 的 CFBundleName 和 CFBundleDisplayName 改为 ASCII 的 MoyuCalendar；桌面中文名称通过 en/zh-Hans/zh-Hant 的 InfoPlist.strings 保留。SideStore 列表或注册过程显示 MoyuCalendar 属正常。bundle ID 仍为 com.banli.shift。
+
+流水线新增注册名称回归测试，并在实际 IPA 中检查英文注册名称和中文本地化资源。此检查不等同于已在用户 iPhone 上完成签名安装；安装仍需使用新版 IPA 在 SideStore 重试。

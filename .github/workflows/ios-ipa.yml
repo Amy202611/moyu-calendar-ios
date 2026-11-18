@@ -28,6 +28,8 @@ jobs:
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
           xcodegen --version
+      - name: Test SideStore registration metadata
+        run: python3 -m unittest discover -s Scripts/tests -p 'test_*.py'
       - name: Test native schedule and ledger
         run: |
           mkdir -p build

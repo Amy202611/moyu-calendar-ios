@@ -74,7 +74,7 @@ struct PreferencesView: View {
                 Text("Excel必须包含本应用“完整恢复数据”表；确认后替换。统计筛选不限制恢复表的全量范围。").font(.caption)
             }
             Section("关于") {
-                Text("摸鱼日历 · 原生 SwiftUI 1.3.0")
+                Text("摸鱼日历 · 原生 SwiftUI " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
                 Text("个人记录本机保存，不上传；节假日来源为公开维护的 holiday-cn 和 Nager.Date。").font(.caption)
                 Text("此免费侧载版不含 App Groups / WidgetKit 扩展或持续响铃闹钟。").font(.caption)
             }

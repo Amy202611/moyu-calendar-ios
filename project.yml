@@ -24,9 +24,9 @@ targets:
     type: application
     platform: iOS
     sources:
-      - Sources
-    resources:
-      - Resources
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
     dependencies:
       - package: ZIPFoundation
     settings:

@@ -22,7 +22,11 @@ def validate(path):
   if len(infos)!=1:raise ValueError("Expected exactly one Payload/<app>.app/Info.plist")
   info=plistlib.loads(z.read(infos[0]))
   registration_name=validate_registration_names(info)
-  localized_names=validate_localized_names(z,infos[0].rsplit("/",1)[0])
+  root=infos[0].rsplit("/",1)[0]
+  localized_names=validate_localized_names(z,root)
+  if root+"/china2026.json" not in z.namelist():raise ValueError("Missing bundled Chinese holiday data")
+  if json.loads(z.read(root+"/china2026.json")).get("year")!=2026:raise ValueError("Wrong bundled holiday year")
+  if not info.get("CFBundleIcons",{}).get("CFBundlePrimaryIcon",{}).get("CFBundleIconFiles"):raise ValueError("Missing compiled app icon metadata")
   if info.get("CFBundleSupportedPlatforms")!=["iPhoneOS"]:raise ValueError("Wrong SDK / simulator build")
   exe=info.get("CFBundleExecutable","")
   if not exe or "/" in exe:raise ValueError("Invalid executable")

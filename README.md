@@ -14,7 +14,7 @@
 ## 自动构建
 
 推送任意代码或发起PR都会构建，Actions中也支持Run workflow手动触发。
-使用XcodeGen管理工程。GitHub Actions使用macos-15、真实iphoneos SDK、generic/platform=iOS、ARCHS=arm64。
+使用XcodeGen管理工程。GitHub Actions使用标准macos-15-intel运行池（编译主机为Intel，输出仍是iPhone ARM64）、真实iphoneos SDK、generic/platform=iOS、ARCHS=arm64。
 CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO，签名身份和DEVELOPMENT_TEAM均为空，无需在GitHub放Apple ID、证书或描述文件。
 直接打包Release-iphoneos下的.app为Payload/*.app，不使用需描述文件的exportArchive。
 产物检查Mach-O架构、平台、加密状态、Info.plist与SHA-256，拒绝模拟器构建。

@@ -1,0 +1,49 @@
+name: MoyuCalendar
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: '16.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ''
+    DEVELOPMENT_TEAM: ''
+    TARGETED_DEVICE_FAMILY: '1'
+    ENABLE_BITCODE: NO
+    SUPPORTS_MACCATALYST: NO
+    MARKETING_VERSION: '1.3.0'
+    CURRENT_PROJECT_VERSION: '1'
+packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    exactVersion: 0.9.19
+targets:
+  MoyuCalendar:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    resources:
+      - Resources
+    dependencies:
+      - package: ZIPFoundation
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.banli.shift
+        PRODUCT_NAME: MoyuCalendar
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
+        SKIP_INSTALL: NO
+schemes:
+  MoyuCalendar:
+    build:
+      targets:
+        MoyuCalendar: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -60,7 +60,10 @@ def publish():
  existing=subprocess.run(["gh","release","view",tag,"--repo",REPO,"--json","isDraft"],capture_output=True,text=True)
  if existing.returncode!=0:
   gh("release","create",tag,"--repo",REPO,"--target",run["head_sha"],"--draft","--title","摸鱼日历 "+records[0]["version"]+" · build "+str(run["run_number"]),"--notes-file",str(ROOT/"notes.md"))
- data=json.loads(gh("api","repos/"+REPO+"/releases/tags/"+tag))
+ pages=json.loads(gh("api","--paginate","--slurp","repos/"+REPO+"/releases?per_page=100"))
+ matches=[release for page in pages for release in page if release["tag_name"]==tag]
+ if len(matches)!=1:raise ValueError("Expected one release including authenticated drafts")
+ data=matches[0]
  if data["draft"]:
   # Only our unpublished draft may be repaired. Published files are immutable here.
   for asset in data["assets"]:
@@ -68,14 +71,14 @@ def publish():
     if asset.get("digest") not in {"sha256:"+r["sha256"] for r in records}:raise ValueError("Unexpected legacy draft asset")
     gh("api","--method","DELETE","repos/"+REPO+"/releases/assets/"+str(asset["id"]))
   gh("release","upload",tag,"--repo",REPO,"--clobber",*[str(p) for p in sorted((ROOT/"files").iterdir())])
-  data=json.loads(gh("api","repos/"+REPO+"/releases/tags/"+tag))
+  data=json.loads(gh("api","repos/"+REPO+"/releases/"+str(data["id"])))
  assets={a["name"]:a for a in data["assets"]}
  for record in records:
   asset=assets.get(record["name"])
   if not asset or asset["size"]!=record["size"] or asset.get("digest")!="sha256:"+record["sha256"]:
    raise ValueError("Published IPA asset digest or size does not match verified source")
  if data["draft"]:gh("release","edit",tag,"--repo",REPO,"--draft=false")
- data=json.loads(gh("api","repos/"+REPO+"/releases/tags/"+tag))
+ data=json.loads(gh("api","repos/"+REPO+"/releases/"+str(data["id"])))
  if data["draft"]:raise ValueError("Release is still a draft")
  links=[{"name":a["name"],"url":a["browser_download_url"],"size":a["size"],"digest":a.get("digest")} for a in data["assets"] if a["name"].endswith(".ipa")]
  print(json.dumps({"sourceRun":run["id"],"sourceSHA":run["head_sha"],"release":data["html_url"],"tag":tag,"files":links},ensure_ascii=False,indent=2))

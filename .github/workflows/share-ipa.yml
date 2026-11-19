@@ -1,0 +1,53 @@
+name: Share downloadable IPA
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/share-ipa.yml]
+  workflow_run:
+    workflows: [Build iPhone IPA]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful main Build iPhone IPA run ID (blank uses build 13)
+        required: false
+        default: '44523649868'
+permissions:
+  contents: read
+concurrency:
+  group: share-ipa-${{ github.event.workflow_run.id || inputs.run_id || '44523649868' }}
+  cancel-in-progress: false
+jobs:
+  extract-and-share:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id || '44523649868' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download verified build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          mkdir -p release/basic release/widgets release/files
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > release/run.json
+          python3 Scripts/share-ipa.py check-run
+          run_number="$(python3 -c 'import json; print(json.load(open("release/run.json"))["run_number"])')"
+          run_attempt="$(python3 -c 'import json; print(json.load(open("release/run.json"))["run_attempt"])')"
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "MoyuCalendar-ARM64-unsigned-$run_number-$run_attempt" --dir release/basic
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "MoyuCalendar-Widgets-adhoc-SideStore-$run_number-$run_attempt" --dir release/widgets
+      - name: Verify, extract and publish IPA files
+        run: python3 Scripts/share-ipa.py publish

@@ -99,6 +99,8 @@ private extension Color {
 }
 struct MoyuWidget: Widget {
     var person: String
+    init() { person = "p1" }
+    init(person: String) { self.person = person }
     var body: some WidgetConfiguration {
         StaticConfiguration(kind:"MoyuCalendar."+person,provider:CalendarProvider()) { CalendarWidgetView(entry:$0,person:person) }
             .configurationDisplayName("摸鱼日历 · "+(person == "p1" ? "我" : person == "p2" ? "搭班人" : "两人"))

@@ -2,7 +2,7 @@ name: Share downloadable IPA
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/share-ipa.yml]
+    paths: [.github/workflows/share-ipa.yml, Scripts/share-ipa.py]
   workflow_run:
     workflows: [Build iPhone IPA]
     types: [completed]

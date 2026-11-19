@@ -5,7 +5,11 @@ import hashlib,json,os,pathlib,re,shutil,subprocess,sys,zipfile,plistlib
 ROOT=pathlib.Path("release")
 REPO=os.environ["GITHUB_REPOSITORY"]
 def gh(*args):
- return subprocess.run(["gh",*args],check=True,capture_output=True,text=True).stdout
+ result=subprocess.run(["gh",*args],capture_output=True,text=True)
+ if result.returncode:
+  sys.stderr.write(result.stderr)
+  raise subprocess.CalledProcessError(result.returncode,["gh",*args])
+ return result.stdout
 def run_metadata():
  data=json.loads((ROOT/"run.json").read_text())
  if data["name"]!="Build iPhone IPA" or data["head_branch"]!="main" or data["conclusion"]!="success" or data["repository"]["full_name"]!=REPO or data["event"] not in ["push","workflow_dispatch"]:
@@ -38,7 +42,7 @@ def publish():
    if len(infos)!=1:raise ValueError("Invalid Payload")
    info=plistlib.loads(archive.read(infos[0]))
    if info["CFBundleIdentifier"]!="com.banli.shift" or info["CFBundleShortVersionString"]!=version or str(info["CFBundleVersion"])!=str(run["run_number"]):raise ValueError("IPA metadata mismatch")
-  destination=ROOT/"files"/("摸鱼日历-"+version+"-"+title+".ipa")
+  destination=ROOT/"files"/("MoyuCalendar-"+version+"-"+folder+".ipa")
   shutil.copyfile(source,destination)
   shutil.copyfile(location/report_name,ROOT/"files"/report_name)
   records.append({"name":destination.name,"sha256":digest,"size":destination.stat().st_size,"version":version})
@@ -55,8 +59,16 @@ def publish():
  (ROOT/"files"/"SHA256SUMS.txt").write_text("".join(item["sha256"]+"  "+item["name"]+"\n" for item in records),encoding="utf-8")
  existing=subprocess.run(["gh","release","view",tag,"--repo",REPO,"--json","isDraft"],capture_output=True,text=True)
  if existing.returncode!=0:
-  gh("release","create",tag,"--repo",REPO,"--target",run["head_sha"],"--draft","--title","摸鱼日历 "+records[0]["version"]+" · build "+str(run["run_number"]),"--notes-file",str(ROOT/"notes.md"),*[str(p) for p in sorted((ROOT/"files").iterdir())])
+  gh("release","create",tag,"--repo",REPO,"--target",run["head_sha"],"--draft","--title","摸鱼日历 "+records[0]["version"]+" · build "+str(run["run_number"]),"--notes-file",str(ROOT/"notes.md"))
  data=json.loads(gh("api","repos/"+REPO+"/releases/tags/"+tag))
+ if data["draft"]:
+  # Only our unpublished draft may be repaired. Published files are immutable here.
+  for asset in data["assets"]:
+   if asset["name"]=="-"+records[0]["version"]+"-.ipa":
+    if asset.get("digest") not in {"sha256:"+r["sha256"] for r in records}:raise ValueError("Unexpected legacy draft asset")
+    gh("api","--method","DELETE","repos/"+REPO+"/releases/assets/"+str(asset["id"]))
+  gh("release","upload",tag,"--repo",REPO,"--clobber",*[str(p) for p in sorted((ROOT/"files").iterdir())])
+  data=json.loads(gh("api","repos/"+REPO+"/releases/tags/"+tag))
  assets={a["name"]:a for a in data["assets"]}
  for record in records:
   asset=assets.get(record["name"])

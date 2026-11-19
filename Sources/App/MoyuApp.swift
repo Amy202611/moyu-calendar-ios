@@ -104,9 +104,19 @@ struct DayCell: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var holidays: Holidays
     var day: String, person: String, selected: Bool
+    private var dateColor: Color {
+        let d = store.data
+        let entries = d.entries.filter { $0.date == day && (person == "all" || $0.person == person) }
+        for k in [Kind.annual, .leave, .overtime] where entries.contains(where: { $0.type == k }) { return store.color(k.rawValue) }
+        let people = d.people.filter { person == "all" || $0.id == person }
+        if people.contains(where: { Roster.duty(d,$0.id,day) != nil }) { return store.color("duty") }
+        if let p = people.first(where: { Roster.shift(d,$0.id,day) == .night }) { return store.color(p.id) }
+        if let s = people.compactMap({ Roster.shift(d,$0.id,day) }).first { return store.color(s.rawValue) }
+        return .primary
+    }
     var body: some View {
         VStack(spacing:2) {
-            Text(String(Int(day.suffix(2)) ?? 0)).font(.system(size:19,weight:.semibold))
+            Text(String(Int(day.suffix(2)) ?? 0)).font(.system(size:19,weight:.semibold)).foregroundStyle(dateColor)
             if store.data.settings.lunar { Text(Day.lunar(day)).font(.system(size:8)).foregroundStyle(.secondary).lineLimit(1) }
             ForEach(store.data.people.filter { person == "all" || $0.id == person }) { p in
                 if let s = Roster.shift(store.data,p.id,day) { Badge(title:String(p.name.prefix(2))+"·"+s.title,color:store.color(s == .night ? p.id : s.rawValue)) }

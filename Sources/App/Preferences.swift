@@ -7,13 +7,19 @@ struct StatisticsView: View {
     @State private var end = Date()
     @State private var sharing: ShareFile?
     @State private var editing: Entry?
+    @State private var kind = "all"
     var body: some View {
         let a = Day.key(start), b = Day.key(end), s = Roster.statistics(store.data,person,a,b)
         List {
-            Section { PersonPicker(person:$person); DatePicker("开始",selection:$start,displayedComponents:.date); DatePicker("结束",selection:$end,displayedComponents:.date) }
+            Section { PersonPicker(person:$person);
+                HStack { Button("本月") { setRange(year:false) }; Spacer(); Button("本年") { setRange(year:true) } }
+                Picker("明细类型",selection:$kind) { Text("全部").tag("all"); ForEach(Kind.allCases) { Text($0.title).tag($0.rawValue) } }
+                 DatePicker("开始",selection:$start,displayedComponents:.date); DatePicker("结束",selection:$end,displayedComponents:.date) }
             if a > b || Day.distance(b,a) > 3660 { Text("请选择有效范围，最多10年").foregroundStyle(.red) }
             else {
                 Section("加班与倒休") {
+                    LabeledContent("加班日期数",value:"\(recordDates(.overtime,a,b))天")
+                    LabeledContent("倒休日期数（含已安排）",value:"\(recordDates(.leave,a,b))天")
                     LabeledContent("加班",value:number(Double(s.overtime)/Double(store.data.unit))+"天")
                     LabeledContent("倒休已休",value:number(Double(s.leave)/Double(store.data.unit))+"天")
                     LabeledContent("已安排倒休",value:number(Double(s.planned)/Double(store.data.unit))+"天")
@@ -27,9 +33,17 @@ struct StatisticsView: View {
                     Text("独立值班不自动计加班；两人合计按人次计算。").font(.caption)
                 }
                 Section { Button("导出 Excel（含完整恢复数据）") { do { sharing = ShareFile(url:try Excel.export(store.data,start:a,end:b,person:person)) } catch { store.error = error.localizedDescription } } }
-                Section("明细与销假来源") { ForEach(store.data.entries.filter { $0.date >= a && $0.date <= b && (person == "all" || $0.person == person) }.sorted { $0.date > $1.date }) { e in Button { editing = e } label: { EntryRow(entry:e) }.buttonStyle(.plain) } }
+                Section("明细与销假来源（按类型筛选）") { ForEach(store.data.entries.filter { $0.date >= a && $0.date <= b && (person == "all" || $0.person == person) && (kind == "all" || $0.type.rawValue == kind) }.sorted { $0.date > $1.date }) { e in Button { editing = e } label: { EntryRow(entry:e) }.buttonStyle(.plain) } }
             }
         }.navigationTitle("统计总览").sheet(item:$sharing) { ShareView(url:$0.url) }.sheet(item:$editing) { RecordEditor(entry:$0) }
+    }
+    private func recordDates(_ type: Kind, _ a: String, _ b: String) -> Int {
+        Set(store.data.entries.filter { $0.type == type && $0.date >= a && $0.date <= b && (person == "all" || $0.person == person) }.map { $0.person + "/" + $0.date }).count
+    }
+    private func setRange(year: Bool) {
+        let today = Day.today
+        start = Day.date(year ? String(today.prefix(4))+"-01-01" : String(today.prefix(7))+"-01") ?? Date()
+        end = Date()
     }
 }
 struct PreferencesView: View {
@@ -45,6 +59,7 @@ struct PreferencesView: View {
                 Picker("每周起始",selection:Binding(get:{ store.data.weekStart },set:{ n in store.change { $0.settings.weekStart = n } })) { ForEach(0..<7,id:\.self) { Text("周"+["日","一","二","三","四","五","六"][$0]).tag($0) } }
                 Toggle("农历",isOn:flag(\.lunar)); Toggle("中国节假日",isOn:flag(\.china)); Toggle("美国联邦假日",isOn:flag(\.usa))
                 NavigationLink("节假日表") { HolidayList() }
+                NavigationLink("班次与日期颜色") { PaletteView() }
             }
             Section("节假日校对") {
                 Toggle("联网自动校对",isOn:$holidays.auto); Toggle("仅 Wi-Fi",isOn:$holidays.wifiOnly)

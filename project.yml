@@ -28,6 +28,7 @@ targets:
       - path: Sources
       - path: Shared
       - path: Resources
+        excludes: ["AppIcon.png"]
         buildPhase: resources
     dependencies:
       - package: ZIPFoundation

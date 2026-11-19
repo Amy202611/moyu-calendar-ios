@@ -22,6 +22,9 @@ for attempt in 1 2; do
 done
 app=build/DerivedData/Build/Products/Release-iphoneos/MoyuCalendar.app
 test -d "$app"
+# Keep an exact audit copy of the artwork outside Xcode PNG processing.
+# AppIcon.appiconset is still compiled normally by actool.
+ditto Resources/AppIcon.png "$app/AppIcon.png"
 exe="$app/$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist")"
 test "$(xcrun lipo -archs "$exe")" = arm64
 rm -rf build/ipa-stage

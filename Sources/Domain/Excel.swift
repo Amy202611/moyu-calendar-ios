@@ -15,7 +15,7 @@ enum Excel {
         }.joined()
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>"+body+"</sheetData></worksheet>"
     }
-    static func export(_ d: CalendarData, start: String, end: String, person: String) throws -> URL {
+    static func export(_ d: CalendarData, start: String, end: String, person: String, holidays: [ExportHoliday] = []) throws -> URL {
         guard Day.date(start) != nil, Day.date(end) != nil, start <= end, Day.distance(end,start) <= 3660 else { throw AppError.invalid("导出范围无效或超过10年") }
         let people = d.people.filter { person == "all" || $0.id == person }
         func name(_ id: String) -> String { d.people.first { $0.id == id }?.name ?? id }
@@ -35,11 +35,11 @@ enum Excel {
             let used = d.entries.filter { $0.type == .leave }.flatMap { $0.allocations ?? [] }.filter { $0.overtimeId == e.id }.reduce(0) { $0+$1.minutes }
             ledger.append([name(e.person),e.date,e.id,e.note,number(Double(e.minutes)/60),number(Double(used)/60),number(Double(e.minutes-used)/60)])
         }
-        var annual = [["年份","人员","年假总额天","已使用及安排天","剩余天"]]
-        for y in (Int(start.prefix(4))!)...(Int(end.prefix(4))!) { for p in people { let a = Roster.annual(d,p.id,String(y)); annual.append([String(y),p.name,number(Double(a.total)/Double(d.unit)),number(Double(a.used)/Double(d.unit)),number(Double(a.remaining)/Double(d.unit))]) } }
-        var daily = [["日期","人员","基础班次","基础时间","独立值班","值班时间","值班小时","农历","单日备注"]], day = start
+        var annual = [["年份","人员","年假总额天","已使用天","已安排天","剩余天"]]
+        for y in (Int(start.prefix(4))!)...(Int(end.prefix(4))!) { for p in people { let a = Roster.annual(d,p.id,String(y)); annual.append([String(y),p.name,number(Double(a.total)/Double(d.unit)),number(Double(a.used)/Double(d.unit)),number(Double(a.planned)/Double(d.unit)),number(Double(a.remaining)/Double(d.unit))]) } }
+        var daily = [["日期","人员","基础班次","基础时间","独立值班","值班时间","值班小时","农历","单日备注","中美节假日","节假日来源"]], day = start
         while day <= end {
-            for p in people { let s = Roster.shift(d,p.id,day), r = Roster.duty(d,p.id,day); daily.append([day,p.name,s?.title ?? "未排班",s.map { Roster.time(p,$0) } ?? "",r == nil ? "" : "值班",r?.time ?? "",number(Double(r?.minutes ?? 0)/60),Day.lunar(day),d.dayNotes?[day]?[p.id] ?? ""]) }
+            for p in people { let s = Roster.shift(d,p.id,day), r = Roster.duty(d,p.id,day); daily.append([day,p.name,s?.title ?? "未排班",s.map { Roster.time(p,$0) } ?? "",r == nil ? "" : "值班",r?.time ?? "",number(Double(r?.minutes ?? 0)/60),Day.lunar(day),d.dayNotes?[day]?[p.id] ?? "",holidays.filter { $0.date == day }.map { $0.country+"·"+$0.name }.joined(separator:"；"),holidays.filter { $0.date == day }.map(\.source).joined(separator:"；")]) }
             day = Day.add(day,1)
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; let raw = String(decoding:try encoder.encode(d),as:UTF8.self)
@@ -47,14 +47,22 @@ enum Excel {
         var chunk = "", units = 0, count = 0
         for scalar in raw.unicodeScalars { let n = scalar.value > 0xffff ? 2 : 1; if units+n > 28000 { backup.append([String(format:"chunk%05d",count),chunk]); count += 1; chunk = ""; units = 0 }; chunk.unicodeScalars.append(scalar); units += n }
         if !chunk.isEmpty { backup.append([String(format:"chunk%05d",count),chunk]) }
-        let names = ["统计汇总","加班休假明细","销假对应关系","加班余额台账","年度年假","每日排班","完整恢复数据"], tables = [stats,details,links,ledger,annual,daily,backup]
-        let numeric: [Set<Int>] = [Set(3...10),[4,5],[5],[4,5,6],[0,2,3,4],[6],[]]
+        let names = ["统计汇总","加班休假明细","销假对应关系","加班余额台账","年度年假","每日排班","完整恢复数据","节假日表"]
+        let holidayRows = [["日期","国家","名称","类型","来源"]]+holidays.filter { $0.date >= start && $0.date <= end }.map { [$0.date,$0.country,$0.name,$0.kind,$0.source] }
+        let tables = [stats,details,links,ledger,annual,daily,backup,holidayRows]
+        let numeric: [Set<Int>] = [Set(3...10),[4,5],[5],[4,5,6],[0,2,3,4,5],[6],[],[]]
+        return try workbook(names:names,tables:tables,numeric:numeric)
+    }
+    static func holidayTable(_ holidays: [ExportHoliday]) throws -> URL {
+        try workbook(names:["节假日表"],tables:[[["日期","国家","名称","类型","来源"]]+holidays.map { [$0.date,$0.country,$0.name,$0.kind,$0.source] }],numeric:[[]])
+    }
+    private static func workbook(names: [String], tables: [[[String]]], numeric: [Set<Int>]) throws -> URL {
         let head = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         var parts: [String:String] = [:]
-        parts["[Content_Types].xml"] = head+"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"+(1...7).map { "<Override PartName=\"/xl/worksheets/sheet\($0).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" }.joined()+"</Types>"
+        parts["[Content_Types].xml"] = head+"<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"+(1...names.count).map { "<Override PartName=\"/xl/worksheets/sheet\($0).xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" }.joined()+"</Types>"
         parts["_rels/.rels"] = head+"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>"
         parts["xl/workbook.xml"] = head+"<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>"+names.enumerated().map { "<sheet name=\"\($0.element)\" sheetId=\"\($0.offset+1)\" r:id=\"rId\($0.offset+1)\"/>" }.joined()+"</sheets></workbook>"
-        parts["xl/_rels/workbook.xml.rels"] = head+"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"+(1...7).map { "<Relationship Id=\"rId\($0)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet\($0).xml\"/>" }.joined()+"</Relationships>"
+        parts["xl/_rels/workbook.xml.rels"] = head+"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"+(1...names.count).map { "<Relationship Id=\"rId\($0)\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet\($0).xml\"/>" }.joined()+"</Relationships>"
         for (i,t) in tables.enumerated() { parts["xl/worksheets/sheet\(i+1).xml"] = xml(t,numbers:numeric[i]) }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("摸鱼日历统计_\(UUID().uuidString.prefix(8)).xlsx"), archive = try Archive(url:url,accessMode:.create)
         for (path,text) in parts.sorted(by:{ $0.key < $1.key }) { let data = Data(text.utf8); try archive.addEntry(with:path,type:.file,uncompressedSize:Int64(data.count),compressionMethod:.deflate) { position,size in data.subdata(in:Int(position)..<min(Int(position)+size,data.count)) } }

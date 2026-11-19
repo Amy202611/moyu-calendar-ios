@@ -83,6 +83,7 @@ struct CalendarData: Codable, Equatable {
     var colors = ["day":"#39856a","p1":"#5556a6","p2":"#9761ad","off":"#90979c","duty":"#7951c9","overtime":"#d77542","leave":"#3a8f94","annual":"#b78b30","today":"#e2edf9"]
     var annualAllowances: [String:[String:Double]]?
     var dutyOverrides: [String:[String:DutyOverride]]?
+    var reminderSettings: ReminderSettings?
     var dayNotes: [String:[String:String]]?
     var unit: Int { Int((settings.hoursPerDay*60).rounded()) }
     var weekStart: Int { settings.weekStart ?? 1 }
@@ -125,10 +126,12 @@ enum Roster {
         for (e,m) in available(d,person,asOf:asOf) where sourceIDs == nil || sourceIDs!.contains(e.id) { let take = min(left,m); if take > 0 { result.append(Allocation(overtimeId:e.id,minutes:take)); left -= take } }
         guard left == 0 else { throw AppError.invalid("加班余额不足，不能超额销假。") }; return result
     }
-    static func annual(_ d: CalendarData, _ person: String, _ year: String) -> (total:Int, used:Int, remaining:Int) {
+    static func annual(_ d: CalendarData, _ person: String, _ year: String, today: String = Day.today) -> (total:Int, used:Int, planned:Int, remaining:Int) {
         let total = Int((d.annualAllowances?[year]?[person] ?? 10)*Double(d.unit))
-        let used = d.entries.filter { $0.person == person && $0.type == .annual && $0.date.hasPrefix(year+"-") }.reduce(0) { $0+$1.minutes }
-        return (total,used,total-used)
+        let entries = d.entries.filter { $0.person == person && $0.type == .annual && $0.date.hasPrefix(year+"-") }
+        let used = entries.filter { $0.date <= today }.reduce(0) { $0+$1.minutes }
+        let planned = entries.filter { $0.date > today }.reduce(0) { $0+$1.minutes }
+        return (total,used,planned,total-used-planned)
     }
     static func statistics(_ d: CalendarData, _ person: String, _ start: String, _ end: String, today: String = Day.today) -> Statistics {
         var s = Statistics()
@@ -161,6 +164,7 @@ enum Roster {
         for (day,people) in d.overrides { try check(Day.date(day) != nil,"单日日期无效"); for (id,s) in people { try check(["p1","p2"].contains(id) && ["none","day","night","off"].contains(s),"单日班次无效") } }
         for (day,people) in d.dutyOverrides ?? [:] { try check(Day.date(day) != nil,"值班日期无效"); for (id,v) in people { try check(["p1","p2"].contains(id) && (!v.enabled || (Day.validTime(v.startTime ?? "") && Day.validTime(v.endTime ?? ""))),"单日值班无效") } }
         for (day,people) in d.dayNotes ?? [:] { try check(Day.date(day) != nil,"备注日期无效"); for (id,n) in people { try check(["p1","p2"].contains(id) && n.utf16.count <= 200,"备注无效或超过200字") } }
+        if let reminders = d.reminderSettings { try reminders.validate() }
         var ids = Set<String>(), used: [String:Int] = [:], daily: [String:Int] = [:]
         for e in d.entries {
             try check(!e.id.isEmpty && ids.insert(e.id).inserted && Day.date(e.date) != nil && ["p1","p2"].contains(e.person) && (1...1440).contains(e.minutes) && e.note.utf16.count <= 200,"加班或休假记录无效")

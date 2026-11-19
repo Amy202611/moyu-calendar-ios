@@ -1,4 +1,4 @@
-import hashlib,json,pathlib,plistlib,re,struct,sys,zipfile
+import hashlib,json,pathlib,plistlib,re,struct,sys,zipfile,subprocess,tempfile
 def validate_registration_names(info):
  for key in ["CFBundleName","CFBundleDisplayName"]:
   name=info.get(key)
@@ -16,7 +16,7 @@ def validate_localized_names(archive,root):
   names[language]=value["CFBundleDisplayName"]
  return names
 
-def validate(path):
+def validate(path,widgets=False):
  with zipfile.ZipFile(path) as z:
   infos=[n for n in z.namelist() if n.startswith("Payload/") and n.count("/")==2 and n.endswith(".app/Info.plist")]
   if len(infos)!=1:raise ValueError("Expected exactly one Payload/<app>.app/Info.plist")
@@ -45,6 +45,29 @@ def validate(path):
    pos+=length
   if platforms!=[2] or encrypted:raise ValueError("Not a re-signable real iPhone build")
   if any(n.endswith("/embedded.mobileprovision") for n in z.namelist()):raise ValueError("Unexpected provisioning profile")
-  return {"bundleIdentifier":info["CFBundleIdentifier"],"displayName":info.get("CFBundleDisplayName"),"registrationName":registration_name,"bundleName":info["CFBundleName"],"localizedDisplayNames":localized_names,"version":info["CFBundleShortVersionString"],"build":info["CFBundleVersion"],"minimumIOS":info.get("MinimumOSVersion"),"architecture":"arm64","platform":"iPhoneOS","unsignedBuild":True,"sideStoreInstallationVerified":False,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
+  extensions=[n for n in z.namelist() if n.startswith(root+"/PlugIns/") and n.endswith(".appex/Info.plist")]
+  if widgets:
+   if len(extensions)!=1:raise ValueError("Expected one WidgetKit extension")
+   extension=plistlib.loads(z.read(extensions[0]))
+   validate_registration_names(extension)
+   if extension.get("CFBundleIdentifier")!="com.banli.shift.widgets":raise ValueError("Widget identity changed")
+   if extension.get("NSExtension",{}).get("NSExtensionPointIdentifier")!="com.apple.widgetkit-extension":raise ValueError("Wrong extension type")
+   if extension.get("CFBundleVersion")!=info.get("CFBundleVersion"):raise ValueError("Extension build mismatch")
+   extension_root=extensions[0].rsplit("/",1)[0]
+   extension_binary=z.read(extension_root+"/"+extension["CFBundleExecutable"])
+   if struct.unpack_from("<II",extension_binary)!=(0xfeedfacf,0x0100000c):raise ValueError("Widget must be thin ARM64")
+   if extension.get("CFBundleSupportedPlatforms")!=["iPhoneOS"]:raise ValueError("Widget built for wrong SDK")
+   with tempfile.TemporaryDirectory() as folder:
+    if any(".." in pathlib.PurePosixPath(n).parts or n.startswith("/") for n in z.namelist()):raise ValueError("Invalid archive paths")
+    z.extractall(folder)
+    for bundle_root in [root,extension_root]:
+     bundle=pathlib.Path(folder)/bundle_root
+     subprocess.run(["codesign","--verify","--strict",str(bundle)],check=True,capture_output=True)
+     ent=subprocess.run(["codesign","-d","--entitlements",":-",str(bundle)],check=True,capture_output=True)
+     groups=plistlib.loads(ent.stdout).get("com.apple.security.application-groups")
+     if groups!=["group.com.banli.shift.shared"]:raise ValueError("Missing shared App Group entitlement")
+  elif extensions:raise ValueError("Basic unsigned package unexpectedly contains an extension")
+  if info["CFBundleIdentifier"]!="com.banli.shift":raise ValueError("Main identity changed")
+  return {"bundleIdentifier":info["CFBundleIdentifier"],"displayName":info.get("CFBundleDisplayName"),"registrationName":registration_name,"bundleName":info["CFBundleName"],"localizedDisplayNames":localized_names,"version":info["CFBundleShortVersionString"],"build":info["CFBundleVersion"],"minimumIOS":info.get("MinimumOSVersion"),"architecture":"arm64","platform":"iPhoneOS","unsignedBuild":not widgets,"signatureType":"ad-hoc-entitlements-carrier" if widgets else "unsigned","widgetExtensionIncluded":widgets,"sideStoreInstallationVerified":False,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
 if __name__=="__main__":
- p=pathlib.Path(sys.argv[1]);r=validate(p);(p.parent/"ipa-validation.json").write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding="utf-8");print(json.dumps(r,ensure_ascii=False,indent=2))
+ p=pathlib.Path(sys.argv[1]);widgets="--widgets" in sys.argv;r=validate(p,widgets=widgets);(p.parent/("widget-validation.json" if widgets else "ipa-validation.json")).write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding="utf-8");print(json.dumps(r,ensure_ascii=False,indent=2))

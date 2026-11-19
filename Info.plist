@@ -15,4 +15,7 @@
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
 <key>ITSAppUsesNonExemptEncryption</key><false/>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>moyu-calendar</string></array></dict></array>
+<key>NSCalendarsUsageDescription</key><string>读取你选择的系统节假日日历，用于在摸鱼日历中显示，不修改系统日历。</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>读取你选择的系统节假日日历，用于显示和小组件同步，不修改系统日历。</string>
 </dict></plist>

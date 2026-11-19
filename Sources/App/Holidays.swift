@@ -18,6 +18,7 @@ private struct HolidayCache: Codable { var chunks: [String:[HolidayRow]] = [:]; 
     @Published private(set) var updating = false
     @Published private(set) var checkedAt = 0.0
     private var chunks: [String:[HolidayRow]] = [:], cachedRows: [Int:[HolidayRow]] = [:], builtin: [HolidayRow] = []
+    @Published private(set) var sourceStates: [String:String] = [:]
     private var connected = false, wifi = false
     private let monitor = NWPathMonitor()
     private let file: URL
@@ -29,7 +30,7 @@ private struct HolidayCache: Codable { var chunks: [String:[HolidayRow]] = [:]; 
         monitor.pathUpdateHandler = { [weak self] p in Task { @MainActor in guard let self else { return }; self.connected = p.status == .satisfied; self.wifi = p.usesInterfaceType(.wifi) || p.usesInterfaceType(.wiredEthernet); if self.auto { await self.refresh(force:false) } } }
         monitor.start(queue:DispatchQueue(label:"moyu.network"))
     }
-    func labels(_ day: String, settings: Settings) -> [String] { rows(Int(day.prefix(4)) ?? 2026).filter { $0.date == day && ($0.country == "CN" ? settings.china : settings.usa) }.map { ($0.country == "CN" ? "中·" : "美·")+$0.name } }
+    func labels(_ day: String, settings: Settings) -> [String] { rows(Int(day.prefix(4)) ?? 2026).filter { $0.date == day && ($0.country == "CN" ? settings.china : $0.country == "US" ? settings.usa : true) }.map { ($0.country == "CN" ? "中·" : $0.country == "US" ? "美·" : "机·")+$0.name } }
     func rows(_ year: Int) -> [HolidayRow] {
         if let rows = cachedRows[year] { return rows }
         var rows = chunks["CN:\(year)"] ?? builtin.filter { $0.date.hasPrefix("\(year)-") }
@@ -44,8 +45,14 @@ private struct HolidayCache: Codable { var chunks: [String:[HolidayRow]] = [:]; 
             }
         }
         rows += chunks["US:\(year)"] ?? Self.us(year)
+        rows += chunks["SYS:\(year)"] ?? []
         let result = rows.filter { $0.date.hasPrefix("\(year)-") }.sorted { $0.date == $1.date ? $0.country < $1.country : $0.date < $1.date }
         cachedRows[year] = result; return result
+    }
+    func setSystemRows(_ rows: [HolidayRow], year: Int) {
+        chunks["SYS:\(year)"] = rows; cachedRows.removeAll()
+        do { try JSONEncoder().encode(HolidayCache(chunks:chunks,checkedAt:checkedAt)).write(to:file,options:.atomic); status = "系统节假日已同步" }
+        catch { status = "系统节假日缓存保存失败" }
     }
     func refresh(force: Bool, year: Int? = nil) async {
         guard !updating, force || auto else { return }
@@ -80,7 +87,8 @@ private struct HolidayCache: Codable { var chunks: [String:[HolidayRow]] = [:]; 
                     guard result.count >= 8 else { throw AppError.invalid("全国假日数据不完整") }; rows = Array(result.values)
                 }
                 chunks["\(country):\(y)"] = rows; success += 1
-            } catch { failed += 1 }
+                sourceStates["\(country):\(y)"] = "成功 · "+Date().formatted()
+            } catch { failed += 1; sourceStates["\(country):\(y)"] = "校对失败，保留已有数据" }
         } }
         cachedRows.removeAll(); checkedAt = Date().timeIntervalSince1970
         do { try JSONEncoder().encode(HolidayCache(chunks:chunks,checkedAt:checkedAt)).write(to:file,options:.atomic) } catch { status = "缓存保存失败，个人排班未改变"; return }
@@ -116,15 +124,34 @@ struct HolidayList: View {
     @EnvironmentObject var holidays: Holidays
     @State private var year = Day.calendar.component(.year,from:Date())
     @State private var country = "all"
+    @State private var kind = "all"
+    @State private var month = 0
+    @State private var sharing: ShareFile?
+    @EnvironmentObject var store: Store
+    private var filtered: [HolidayRow] { holidays.rows(year).filter { (country == "all" || $0.country == country) && (kind == "all" || $0.kind == kind) && (month == 0 || Int($0.date.dropFirst(5).prefix(2)) == month) } }
     var body: some View {
         List {
             Section {
                 Stepper("\(String(year))年",value:$year,in:1901...2099)
-                Picker("国家",selection:$country) { Text("中国与美国").tag("all"); Text("中国").tag("CN"); Text("美国").tag("US") }
+                Picker("国家",selection:$country) { Text("中国与美国").tag("all"); Text("中国").tag("CN"); Text("美国").tag("US"); Text("手机日历").tag("SYS") }
+                Picker("月份",selection:$month) { Text("全年").tag(0); ForEach(1...12,id: \.self) { Text("\($0)月").tag($0) } }
+                Picker("类型",selection:$kind) { Text("全部").tag("all"); Text("中国放假").tag("off"); Text("中国补班").tag("workday"); Text("节日本日").tag("holiday"); Text("美国补假").tag("observed"); Text("手机日历").tag("system") }
                 Text(holidays.status).font(.caption)
+                ForEach(["CN","US"],id: \.self) { code in Text(code+" "+String(year)+"："+(holidays.sourceStates[code+":"+String(year)] ?? "使用内置或缓存，尚未本次校对")).font(.caption2) }
+                Button("导出筛选节假日 Excel") { do { sharing = ShareFile(url:try Excel.holidayTable(filtered.map(\.exportRow))) } catch { store.error = error.localizedDescription } }
                 Button("校对所选年度") { Task { await holidays.refresh(force:true,year:year) } }.disabled(holidays.updating)
             }
-            Section { ForEach(holidays.rows(year).filter { country == "all" || $0.country == country }) { h in VStack(alignment:.leading) { Text(h.date+" · "+h.name); Text((h.country == "CN" ? "中国" : "美国")+" · "+h.source).font(.caption).foregroundStyle(.secondary) } } } footer: { Text("公开维护来源，非政府官方接口。未收录年度不推算中国官方调休；单位安排以单位通知为准。") }
-        }.navigationTitle("节假日表")
+            Section { ForEach(filtered) { h in VStack(alignment:.leading) { Text(h.date+" · "+h.name); Text((h.country == "CN" ? "中国" : h.country == "US" ? "美国" : "手机日历")+" · "+h.source).font(.caption).foregroundStyle(.secondary) } } } footer: { Text("公开维护来源，非政府官方接口。未收录年度不推算中国官方调休；单位安排以单位通知为准。") }
+        }.navigationTitle("节假日表").sheet(item:$sharing) { ShareView(url:$0.url) }
+    }
+}
+
+extension HolidayRow {
+    var exportRow: ExportHoliday { ExportHoliday(date:date,country:country,name:name,kind:kind,source:source) }
+}
+extension Holidays {
+    func exportRows(start: String, end: String) -> [ExportHoliday] {
+        guard let a = Int(start.prefix(4)), let b = Int(end.prefix(4)), a <= b, b-a <= 10 else { return [] }
+        return (a...b).flatMap { rows($0) }.filter { $0.date >= start && $0.date <= end }.map(\.exportRow)
     }
 }

@@ -1,19 +1,24 @@
 import SwiftUI
 @main struct MoyuApp: App {
+    @UIApplicationDelegateAdaptor(NotificationDelegate.self) private var notificationDelegate
+    @State private var selectedTab = 0
     @StateObject private var store = Store()
     @StateObject private var holidays = Holidays()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            TabView {
-                NavigationStack { MonthView() }.tabItem { Label("日历",systemImage:"calendar") }
-                NavigationStack { PeopleView() }.tabItem { Label("排班",systemImage:"square.stack.3d.up") }
-                NavigationStack { StatisticsView() }.tabItem { Label("统计",systemImage:"chart.bar") }
-                NavigationStack { PreferencesView() }.tabItem { Label("我的",systemImage:"person.crop.circle") }
+            TabView(selection:$selectedTab) {
+                NavigationStack { MonthView() }.tabItem { Label("日历",systemImage:"calendar") }.tag(0)
+                NavigationStack { PeopleView() }.tabItem { Label("排班",systemImage:"square.stack.3d.up") }.tag(1)
+                NavigationStack { StatisticsView() }.tabItem { Label("统计",systemImage:"chart.bar") }.tag(2)
+                NavigationStack { PreferencesView() }.tabItem { Label("我的",systemImage:"person.crop.circle") }.tag(3)
             }.environmentObject(store).environmentObject(holidays).tint(Color(hex:"#28765b"))
             .alert("提示",isPresented:Binding(get:{ store.error != nil },set:{ if !$0 { store.error = nil } })) { Button("知道了",role:.cancel) {} } message: { Text(store.error ?? "") }
-            .task { await holidays.refresh(force:false); await store.scheduleNotifications() }
-            .onChange(of:phase) { p in if p == .active { Task { await holidays.refresh(force:false); await store.scheduleNotifications() } } }
+            .task { await holidays.refresh(force:false); store.updateWidgets(holidays); await store.scheduleNotifications() }
+            .onOpenURL { url in if url.scheme == "moyu-calendar", let day = url.pathComponents.last, Day.date(day) != nil { selectedTab = 0; store.linkDay = day } }
+            .onReceive(NotificationCenter.default.publisher(for:Notification.Name("moyu.openDay"))) { event in if let day = event.object as? String, Day.date(day) != nil { selectedTab = 0; store.linkDay = day } }
+            .onChange(of:holidays.checkedAt) { _ in store.updateWidgets(holidays) }
+            .onChange(of:phase) { p in if p == .active { Task { await holidays.refresh(force:false); store.updateWidgets(holidays); await store.scheduleNotifications() } } }
         }
     }
 }
@@ -70,6 +75,7 @@ struct MonthView: View {
             }.padding()
         }.background(Color(hex:"#f8f7f3")).navigationTitle("摸鱼日历")
         .toolbar { NavigationLink { PreferencesView() } label: { Image(systemName:"slider.horizontal.3") } }
+        .onChange(of:store.linkDay) { day in if let day { month = String(day.prefix(7)); selected = day } }
         .sheet(isPresented:$editDay) { DayEditor(day:selected,person:person == "all" ? "p1" : person) }
         .sheet(item:$entry) { RecordEditor(entry:$0) }
     }
@@ -79,6 +85,7 @@ struct MonthView: View {
         return VStack(alignment:.leading) {
             HStack { Metric(title:"加班 / 天",value:number(Double(s.overtime)/Double(store.data.unit)),color:store.color("overtime")); Metric(title:"倒休已休 / 天",value:number(Double(s.leave)/Double(store.data.unit)),color:store.color("leave")); Metric(title:"年假剩余 / 天",value:number(Double(annual)/Double(store.data.unit)),color:store.color("annual")) }
             Text("可倒休 \(number(Double(s.balance)/Double(store.data.unit))) 天 · 已安排 \(number(Double(s.planned)/Double(store.data.unit))) 天").font(.caption).padding(.top,5)
+            ForEach(people) { p in AnnualSummary(person:p.id,year:y) }
         }
     }
     private var detail: some View {
@@ -140,6 +147,7 @@ struct EntryRow: View {
         VStack(alignment:.leading,spacing:4) {
             Text(store.name(entry.person)+" · "+entry.type.title+" "+number(Double(entry.minutes)/Double(store.data.unit))+"天").font(.subheadline.bold()).foregroundStyle(store.color(entry.type.rawValue))
             Text(entry.date+" · "+number(Double(entry.minutes)/60)+"小时").font(.caption).foregroundStyle(.secondary)
+            if let part = entry.part, !part.isEmpty { Text(part == "am" ? "上午" : part == "pm" ? "下午" : part).font(.caption) }
             if !entry.note.isEmpty { Text(entry.note).font(.caption) }
             ForEach(Array((entry.allocations ?? []).enumerated()),id:\.offset) { _,a in
                 if let o = store.data.entries.first(where:{ $0.id == a.overtimeId }) { Text("来源 \(o.date) · \(o.note) → 核销 \(number(Double(a.minutes)/60))小时").font(.caption2).foregroundStyle(.secondary) }

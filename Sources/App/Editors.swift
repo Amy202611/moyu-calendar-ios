@@ -62,7 +62,7 @@ struct RecordEditor: View {
     @State private var deleting = false
     @State private var manualSources = false
     @State private var sources = Set<String>()
-    init(entry: Entry) { _entry = State(initialValue:entry); _hours = State(initialValue:Double(entry.minutes)/60) }
+    init(entry: Entry) { _entry = State(initialValue:entry); _hours = State(initialValue:Double(entry.minutes)/60); _manualSources = State(initialValue:entry.type == .leave && !(entry.allocations ?? []).isEmpty); _sources = State(initialValue:Set((entry.allocations ?? []).map(\.overtimeId))) }
     var body: some View {
         NavigationStack { Form {
             Section {
@@ -72,6 +72,7 @@ struct RecordEditor: View {
                 HStack { Button("半天") { hours = store.data.settings.hoursPerDay/2 }; Spacer(); Button("一天") { hours = store.data.settings.hoursPerDay } }
                 TextField("小时",value:$hours,format:.number).keyboardType(.decimalPad)
                 Text("折合 \(number(hours/store.data.settings.hoursPerDay)) 天；最小15分钟。").font(.caption)
+                Picker("时段备注",selection:Binding(get:{ entry.part ?? "" },set:{ entry.part = $0.isEmpty ? nil : $0 })) { Text("自定时长").tag(""); Text("上午").tag("am"); Text("下午").tag("pm"); Text("全天").tag("full") }
                 TextField("备注（最多200字）",text:$entry.note,axis:.vertical)
             }
             if entry.type == .leave {

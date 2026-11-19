@@ -1,51 +1,39 @@
-# 摸鱼日历 iOS · 原生 SwiftUI
+# 摸鱼日历 · Native iPhone
 
-最低 iOS 16，真实 iPhone ARM64。原生月历、农历、双人基础班表、每周/周期/手动排班、独立间隔值班、白班/休息叠加值班、单日备注、半天加班/倒休/年假、加班来源核销、统计、JSON与真正Excel备份恢复、本地通知和中美节假日联网校对。
+Swift + SwiftUI，iOS 16 起，真机 ARM64。固定应用标识：`com.banli.shift`。Windows 用户通过 GitHub Actions 的 macOS/Xcode 运行器打包，无需本地 Xcode 或付费 Apple 开发者会员。
 
-## 下载与安装
+## 功能
 
-仓库 **Actions → Build iPhone IPA → 最近成功的运行 → Artifacts → MoyuCalendar-ARM64-unsigned-编号-次数**。
-下载 Artifact ZIP 后解压，将里面的 **MoyuCalendar-unsigned.ipa** 导入 SideStore。不是直接导入 Artifact ZIP。
+- 两人独立排班：按星期、循环序列、手动基础班表；独立值班按起始日与间隔轮换，白班或休息可叠加值班。规则预览、时间、跨夜、单日修改/取消/恢复和备注。
+- 加班、倒休、年假：半天/全天/15分钟时长，上午/下午备注；倒休 FIFO 或手动选加班来源，保留原始日期及备注，防止超额核销或删除已被核销的来源。
+- 年假额度、已休、已安排、剩余分开显示；日历首页、统计筛选、基础夜班/休息/独立值班、加班销假台账、配色设置。
+- 中国/美国节假日、农历、联网校对与缓存、按年/月/国家/类型筛选、节假日 Excel；可授权读取手机里所选节假日日历的全天事件。
+- 真正的 XLSX 导出（统计、明细、来源、余额、年假、每日排班、完整恢复数据、节假日），JSON/XLSX 恢复，保留 BANLI_BACKUP_V1 和旧版记录兼容。
+- 按人员、白班/夜班/值班分别选择本地通知，提前时间、明日简报、自定义提醒、测试、关闭/5分钟后再提醒。
+- WidgetKit 今日卡片与月历，分别提供我/搭班人/两人，农历/节假日/备注/颜色和统计，点击日期跳到应用。
 
-不需要 Mac 或付费 Apple Developer Program；GitHub macOS运行器负责 Xcode 编译，SideStore 在手机上使用自己的 Apple ID 重新签名。免费签名通常需定期刷新，也受Apple活跃应用数等限制。iPhone可能要求开启开发者模式。SideStore安装准备见 https://docs.sidestore.io/ 。
+## 构建和下载
 
-构建成功及结构校验不等于在每款真机上的安装已验证。请保留原数据备份，使用同一Apple ID和应用标识更新，避免先卸载应用。
+推送或 PR 自动运行 `Build iPhone IPA`；也可在 Actions 页面点 Run workflow。XcodeGen 管理工程，Xcode 构建时始终关闭自动签名：`CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`。
 
-## 自动构建
+每次构建先执行 Python 元数据测试、Swift 核心与 Excel 测试，然后编译真机应用及小组件、检查结构并上传两个独立 Artifact：
 
-推送任意代码或发起PR都会构建，Actions中也支持Run workflow手动触发。
-使用XcodeGen管理工程。GitHub Actions使用标准macos-15-intel运行池（编译主机为Intel，输出仍是iPhone ARM64）、真实iphoneos SDK、generic/platform=iOS、ARCHS=arm64。
-CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO，签名身份和DEVELOPMENT_TEAM均为空，无需在GitHub放Apple ID、证书或描述文件。
-直接打包Release-iphoneos下的.app为Payload/*.app，不使用需描述文件的exportArchive。
-产物检查Mach-O架构、平台、加密状态、Info.plist与SHA-256，拒绝模拟器构建。
-每次运行同时上传日志、诊断；默认保留30天。公共仓库标准托管运行器通常免费，私有仓库受账户额度影响。
+1. `MoyuCalendar-ARM64-unsigned-...`：完全未签名基础版，无 Widget 扩展，保留应用内功能。解压 ZIP 后用 SideStore 的加号导入其中的 IPA。
+2. `MoyuCalendar-Widgets-adhoc-SideStore-...`：含 Widget 扩展，构建后以本机 ad-hoc 签名携带 App Groups 权限，没有 Apple 开发者证书签名，必须由 SideStore 重新签名。不要删除小组件或共享容器权限。它不叫“完全未签名”包。主应用和扩展共享 `group.com.banli.shift.shared`，运行时从重签后的自身 profile 解析实际组名。是否能为免费账号注册此组需以 SideStore 实际返回为准。
+3. `MoyuCalendar-logs-...`：编译和测试日志。两个安装包的 SHA256 及结构报告一并上传。
 
-## 数据与平台差异
+小组件添加：安装含 Widget 的包后打开应用，在“我的 → 桌面小组件”同步，长按桌面添加摸鱼日历，选择对应人员和尺寸。基础版和 Widget 版共用主应用标识；更新前先备份个人记录。
 
-首次运行没有演示记录。安卓JSON和包含“完整恢复数据”的Excel备份可导入；普通手工统计Excel不能还原。
-导入先校验，确认后替换；完整恢复表包含全部人员及历史数据，不受统计筛选影响。
-独立值班不自动记加班，基础休息可以另有值班。
-中国内置2026年公开源整理的放假补班数据；holiday-cn和Nager.Date是公开维护来源，并非政府官方接口。未收录年度不推算官方调休。联网失败保留缓存，不上传个人记录。
-节假日更新在前台/网络恢复时按6小时间隔检查，不保证iOS后台持续执行。
-本地通知按最近60条安排，受系统权限及专注模式影响，不是持续响铃闹钟。
-此免费侧载版不包含App Groups/WidgetKit扩展、安卓小组件或远程推送服务器。
+## 实际限制及验证边界
 
-原图可保存为Resources/AppIconOriginal.png或.jpg，CI会生成图标尺寸；无原图时使用简约日历鱼图案，不声称与安卓原图完全一致。
+- 免费 Apple ID 的有效期、App ID/活跃应用数量由 Apple/SideStore 管理；本仓库不收集 Apple ID、证书或账号密码。SideStore 会重签应用标识，原工程保持固定。
+- 普通本地通知不能保证静音/专注模式下强制响铃，也不是持续响铃闹钟或服务器 APNs 推送。iOS 限制待发通知数量，应用安排最近60条以内，每次打开补充；小组件刷新由系统调度。
+- 节假日网络校对在前台或网络恢复时按6小时间隔执行，使用公开维护的 holiday-cn/Nager.Date；不是后台永久在线。失败保留缓存。手机日历数据点击同步更新。
+- 原始同款图标必须来自用户上传的原图，放入 `Resources/AppIconOriginal.jpg`（或 png/jpeg），脚本自动生成尺寸。若原文件尚未恢复，构建仍使用现有临时图标，不代表已恢复同款。
+- CI 的 ARM64、Widget 结构、共享权限、恢复格式校验不等于用户真机安装或权限行为已验证。真机验证状态写在每次产物的报告中，不伪报成功。
 
-## 日志与修复
+## 维护
 
-Scripts/diagnose.py自动提取源文件错误、签名问题和网络故障。只对识别出的临时依赖问题重试一次，不把普通代码错误靠重跑伪装成修复。
-有仓库权限的编码代理可读取失败日志、修改、提交并让push重新构建；GitHub Actions本身不会自动理解并修复任意Swift代码。未建立持续运行代理前，不应称为无人值守自动修复。
+修改 `Sources/`、`Shared/` 或 `WidgetExtension/`，普通快进提交后自动打包；禁止强制推送。功能修改不得通过删除测试或放宽校验掩盖失败。流水线仅对明确的临时依赖网络错误重试一次；实际源码错误需要修复后提交。
 
-## 构建命令
-
-swift test
-bash Scripts/build-ipa.sh
-
-Windows无需Xcode；后续提交代码即可获取新IPA。ZIPFoundation固定0.9.19（MIT）：https://github.com/weichsel/ZIPFoundation/blob/0.9.19/LICENSE
-
-## 1.3.1 SideStore 注册名称兼容修复
-
-针对 Apple 拒绝 appIdName=摸鱼日历 的安装错误，根 Info.plist 的 CFBundleName 和 CFBundleDisplayName 改为 ASCII 的 MoyuCalendar；桌面中文名称通过 en/zh-Hans/zh-Hant 的 InfoPlist.strings 保留。SideStore 列表或注册过程显示 MoyuCalendar 属正常。bundle ID 仍为 com.banli.shift。
-
-流水线新增注册名称回归测试，并在实际 IPA 中检查英文注册名称和中文本地化资源。此检查不等同于已在用户 iPhone 上完成签名安装；安装仍需使用新版 IPA 在 SideStore 重试。
+注册名称采用安全 ASCII 的 MoyuCalendar，桌面名称用本地化显示“摸鱼日历”，避免 SideStore 的 appIdName 中文注册错误。

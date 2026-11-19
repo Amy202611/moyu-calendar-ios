@@ -47,9 +47,19 @@ jobs:
         with:
           name: MoyuCalendar-ARM64-unsigned-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
-            build/output/*.ipa
+            build/output/MoyuCalendar-unsigned.ipa
             build/output/SHA256SUMS.txt
             build/output/ipa-validation.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Widget SideStore package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoyuCalendar-Widgets-adhoc-SideStore-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            build/output/MoyuCalendar-Widgets-adhoc-SideStore.ipa
+            build/output/widget-validation.json
+            build/output/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
       - name: Upload logs

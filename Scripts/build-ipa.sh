@@ -28,6 +28,23 @@ rm -rf build/ipa-stage
 mkdir -p build/ipa-stage/Payload
 ditto "$app" build/ipa-stage/Payload/MoyuCalendar.app
 find build/ipa-stage -name embedded.mobileprovision -delete
+# A completely unsigned basic package remains available without extensions.
+rm -rf build/ipa-stage/Payload/MoyuCalendar.app/PlugIns
 (cd build/ipa-stage && ditto -c -k --keepParent Payload ../output/MoyuCalendar-unsigned.ipa)
 python3 Scripts/validate-ipa.py build/output/MoyuCalendar-unsigned.ipa
 (cd build/output && shasum -a 256 MoyuCalendar-unsigned.ipa > SHA256SUMS.txt)
+
+# App Groups must be carried in the Mach-O signature so SideStore can request
+# matching profiles. Ad-hoc signing uses no Apple certificate or paid account.
+# This second IPA is explicitly labelled ad-hoc, never reported as unsigned.
+rm -rf build/widget-stage
+mkdir -p build/widget-stage/Payload
+ditto "$app" build/widget-stage/Payload/MoyuCalendar.app
+widget_app=build/widget-stage/Payload/MoyuCalendar.app
+widget_ext="$widget_app/PlugIns/MoyuCalendarWidgets.appex"
+test -d "$widget_ext"
+codesign --force --sign - --entitlements Signing/Widget.entitlements "$widget_ext"
+codesign --force --sign - --entitlements Signing/App.entitlements "$widget_app"
+(cd build/widget-stage && ditto -c -k --keepParent Payload ../output/MoyuCalendar-Widgets-adhoc-SideStore.ipa)
+python3 Scripts/validate-ipa.py build/output/MoyuCalendar-Widgets-adhoc-SideStore.ipa --widgets
+(cd build/output && shasum -a 256 *.ipa > SHA256SUMS.txt)

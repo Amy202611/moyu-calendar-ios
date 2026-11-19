@@ -72,6 +72,62 @@ final class DomainTests: XCTestCase {
         XCTAssertEqual(restored,d)
         let zip = try Archive(url:url,accessMode:.read); XCTAssertNotNil(zip["xl/worksheets/sheet7.xml"])
     }
+    func testAnnualSeparatesUsedAndPlannedAndPreservesBalance() throws {
+        var d = dual()
+        d.entries = [
+            Entry(date:"2026-11-01",person:"p1",type:.annual,minutes:240),
+            Entry(date:"2026-12-01",person:"p1",type:.annual,minutes:480)
+        ]
+        let a = Roster.annual(d,"p1","2026",today:"2026-11-19")
+        XCTAssertEqual(a.total,4800); XCTAssertEqual(a.used,240)
+        XCTAssertEqual(a.planned,480); XCTAssertEqual(a.remaining,4080)
+        try Roster.validate(d)
+    }
+    func testReminderSelectionLeavesDutyIndependentAndIncludesCustom() throws {
+        var d = dual()
+        d.people[0].duty?.start = "2026-11-11"; d.people[0].duty?.intervalDays = 1
+        d.entries = [Entry(date:"2026-11-11",person:"p1",type:.annual,minutes:480)]
+        var settings = ReminderSettings()
+        settings.people = ["p1"]; settings.briefing = true
+        settings.custom = [CustomReminder(id:"custom",title:"填写日报",date:"2026-11-11",time:"09:00",enabled:true)]
+        let now = Day.calendar.startOfDay(for:Day.date("2026-11-11")!)
+        let plans = ReminderPlanner.plan(d,settings:settings,lead:30,now:now)
+        XCTAssertFalse(plans.contains { $0.id == "moyu/p1/2026-11-11/day" })
+        XCTAssertTrue(plans.contains { $0.id == "moyu/p1/2026-11-11/duty" })
+        XCTAssertTrue(plans.contains { $0.id == "moyu/custom/custom" && $0.title == "填写日报" })
+        XCTAssertTrue(plans.contains { $0.id == "moyu/briefing/2026-11-11" && $0.body.contains("值班") })
+        XCTAssertFalse(plans.contains { $0.id.hasPrefix("moyu/p2/") })
+        settings.kinds = []
+        XCTAssertFalse(ReminderPlanner.plan(d,settings:settings,lead:30,now:now).contains { $0.id.hasSuffix("/duty") })
+        try settings.validate()
+        settings.custom[0].time = "25:00"; XCTAssertThrowsError(try settings.validate())
+    }
+    func testExcelIncludesHolidayRowsAndBackupStillRestores() throws {
+        let d = dual()
+        let holiday = ExportHoliday(date:"2026-11-11",country:"US",name:"退伍军人节",kind:"holiday",source:"测试来源")
+        let url = try Excel.export(d,start:"2026-11-01",end:"2026-11-30",person:"p1",holidays:[holiday])
+        defer { try? FileManager.default.removeItem(at:url) }
+        let archive = try Archive(url:url,accessMode:.read)
+        for sheet in [6,8] {
+            var bytes = Data()
+            _ = try archive.extract(archive["xl/worksheets/sheet\(sheet).xml"]!) { bytes.append($0) }
+            XCTAssertTrue(String(decoding:bytes,as:UTF8.self).contains("退伍军人节"))
+        }
+        XCTAssertEqual(try JSONDecoder().decode(CalendarData.self,from:Excel.restore(url)),d)
+        let table = try Excel.holidayTable([holiday]); defer { try? FileManager.default.removeItem(at:table) }
+        XCTAssertThrowsError(try Excel.restore(table))
+    }
+    func testReminderSettingsSurviveBackupAndLegacyDefaults() throws {
+        var d = dual(), settings = ReminderSettings()
+        settings.custom = [CustomReminder(title:"提醒",date:"2026-12-01",time:"10:00")]
+        d.reminderSettings = settings
+        let raw = try JSONEncoder().encode(d)
+        XCTAssertEqual(try JSONDecoder().decode(CalendarData.self,from:raw),d)
+        var object = try JSONSerialization.jsonObject(with:raw) as! [String:Any]
+        object.removeValue(forKey:"reminderSettings")
+        let legacy = try JSONDecoder().decode(CalendarData.self,from:JSONSerialization.data(withJSONObject:object))
+        XCTAssertNil(legacy.reminderSettings); try Roster.validate(legacy)
+    }
     func testFormulaLikeNotesArePlainText() throws {
         var d = dual(); d.entries = [Entry(date:"2026-11-01",person:"p1",type:.overtime,minutes:240,note:"=SUM(1,1)")]
         let url = try Excel.export(d,start:"2026-11-01",end:"2026-11-01",person:"p1"); defer { try? FileManager.default.removeItem(at:url) }

@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 @MainActor final class Store: ObservableObject {
     @Published private(set) var data = CalendarData()
     @Published var error: String?
+    @Published var linkDay: String?
     @Published var reminders = UserDefaults.standard.bool(forKey:"reminders")
     @Published var lead = UserDefaults.standard.object(forKey:"lead") as? Int ?? 30
+    private var notificationGeneration = 0
     private var damaged = false
     let file: URL
     init() {
@@ -25,6 +27,7 @@ import UniformTypeIdentifiers
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]
         try encoder.encode(d).write(to:file,options:.atomic)
         data = d; damaged = false
+        updateWidgets()
         Task { await scheduleNotifications() }
     }
     func change(_ update: (inout CalendarData) -> Void) { do { var d = data; update(&d); try save(d) } catch { self.error = error.localizedDescription } }
@@ -50,33 +53,39 @@ import UniformTypeIdentifiers
         await scheduleNotifications()
     }
     func scheduleNotifications() async {
+        notificationGeneration += 1
+        let generation = notificationGeneration
         let center = UNUserNotificationCenter.current()
         let pending = await center.pendingNotificationRequests()
+        guard generation == notificationGeneration else { return }
         center.removePendingNotificationRequests(withIdentifiers:pending.filter { $0.identifier.hasPrefix("moyu/") }.map(\.identifier))
         guard reminders else { return }
-        let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
-        var list: [(String,Date,String,String)] = []
-        let now = Date()
-        for offset in 0..<120 {
-            let day = Day.add(Day.today,offset)
-            for p in data.people {
-                let absent = data.entries.filter { $0.person == p.id && $0.date == day && $0.type != .overtime }.reduce(0) { $0+$1.minutes } >= data.unit
-                var events: [(String,String,String)] = []
-                if let sh = Roster.shift(data,p.id,day), sh != .off, !absent { events.append((sh.rawValue,sh == .day ? (p.base?.dayStart ?? p.dayStart) : (p.base?.nightStart ?? p.nightStart),sh.title+" "+Roster.time(p,sh))) }
-                if let duty = Roster.duty(data,p.id,day) { events.append(("duty",duty.startTime,"值班 "+duty.time)) }
-                for (kind,time,title) in events {
-                    guard let d = Day.date(day), let at = Day.calendar.date(bySettingHour:Day.minutes(time)/60,minute:Day.minutes(time)%60,second:0,of:d), at > now else { continue }
-                    list.append(("moyu/\(p.id)/\(day)/\(kind)",max(now.addingTimeInterval(1),at.addingTimeInterval(-Double(lead*60))),p.name+" · "+title,data.dayNotes?[day]?[p.id] ?? "班前提醒"))
-                }
-            }
-        }
-        for (id,date,title,note) in list.sorted(by:{ $0.1 < $1.1 }).prefix(60) {
-            let c = UNMutableNotificationContent(); c.title = title; c.body = note; c.sound = .default
-            let t = UNCalendarNotificationTrigger(dateMatching:Calendar.current.dateComponents([.year,.month,.day,.hour,.minute,.second],from:date),repeats:false)
-            do { try await center.add(UNNotificationRequest(identifier:id,content:c,trigger:t)) } catch { self.error = error.localizedDescription; break }
+        let authorization = await center.notificationSettings()
+        guard generation == notificationGeneration, authorization.authorizationStatus == .authorized || authorization.authorizationStatus == .provisional else { return }
+        let stop = UNNotificationAction(identifier:"stop",title:"关闭",options:[])
+        let snooze = UNNotificationAction(identifier:"snooze",title:"5分钟后提醒",options:[])
+        center.setNotificationCategories([UNNotificationCategory(identifier:"moyu.reminder",actions:[snooze,stop],intentIdentifiers:[],options:[])])
+        let plans = ReminderPlanner.plan(data,settings:data.reminderSettings ?? ReminderSettings(),lead:lead)
+        let reserved = pending.filter { !$0.identifier.hasPrefix("moyu/") }.count
+        for plan in plans.prefix(max(0,60-reserved)) {
+            guard generation == notificationGeneration else { return }
+            let c = UNMutableNotificationContent()
+            c.title = plan.title; c.body = plan.body; c.sound = .default
+            c.categoryIdentifier = "moyu.reminder"; c.userInfo = ["day":plan.day]
+            let t = UNCalendarNotificationTrigger(dateMatching:Calendar.current.dateComponents([.year,.month,.day,.hour,.minute,.second],from:plan.date),repeats:false)
+            do { try await center.add(UNNotificationRequest(identifier:plan.id,content:c,trigger:t)) } catch { self.error = error.localizedDescription; break }
         }
     }
+    func testNotification() async {
+        do {
+            let center = UNUserNotificationCenter.current()
+            guard try await center.requestAuthorization(options:[.alert,.sound,.badge]) else { throw AppError.invalid("请在系统设置允许通知") }
+            let content = UNMutableNotificationContent()
+            content.title = "摸鱼日历 · 测试提醒"; content.body = "本地通知已送达"; content.sound = .default; content.categoryIdentifier = "moyu.reminder"
+            try await center.add(UNNotificationRequest(identifier:"moyu-test",content:content,trigger:UNTimeIntervalNotificationTrigger(timeInterval:5,repeats:false)))
+        } catch { self.error = error.localizedDescription }
+    }
+
 }
 extension Color {
     init(hex: String) { let n = UInt64(hex.trimmingCharacters(in:CharacterSet(charactersIn:"#")),radix:16) ?? 0x39856a; self.init(red:Double((n>>16)&255)/255,green:Double((n>>8)&255)/255,blue:Double(n&255)/255) }

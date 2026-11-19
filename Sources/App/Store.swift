@@ -28,10 +28,10 @@ import UniformTypeIdentifiers
         Task { await scheduleNotifications() }
     }
     func change(_ update: (inout CalendarData) -> Void) { do { var d = data; update(&d); try save(d) } catch { self.error = error.localizedDescription } }
-    func writeEntry(_ value: Entry) throws {
+    func writeEntry(_ value: Entry, sourceIDs: [String]? = nil) throws {
         var e = value, d = data; d.entries.removeAll { $0.id == e.id }
         if e.type == .overtime && e.date > Day.today { throw AppError.invalid("加班应在实际发生后登记") }
-        if e.type == .leave { e.allocations = try Roster.allocate(d,e.person,e.minutes,asOf:min(e.date,Day.today)) }
+        if e.type == .leave { e.allocations = try Roster.allocate(d,e.person,e.minutes,asOf:min(e.date,Day.today),sourceIDs:sourceIDs) }
         d.entries.append(e); try save(d)
     }
     func delete(_ id: String) throws { var d = data; d.entries.removeAll { $0.id == id }; try save(d) }

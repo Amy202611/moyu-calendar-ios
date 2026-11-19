@@ -120,9 +120,9 @@ enum Roster {
         for e in d.entries where e.type == .leave && e.id != excluding { for a in e.allocations ?? [] { used[a.overtimeId,default:0] += a.minutes } }
         return d.entries.filter { $0.person == person && $0.type == .overtime && $0.date <= asOf }.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }.compactMap { e in let left = e.minutes-(used[e.id] ?? 0); return left > 0 ? (e,left) : nil }
     }
-    static func allocate(_ d: CalendarData, _ person: String, _ minutes: Int, asOf: String) throws -> [Allocation] {
+    static func allocate(_ d: CalendarData, _ person: String, _ minutes: Int, asOf: String, sourceIDs: [String]? = nil) throws -> [Allocation] {
         var left = minutes, result: [Allocation] = []
-        for (e,m) in available(d,person,asOf:asOf) { let take = min(left,m); if take > 0 { result.append(Allocation(overtimeId:e.id,minutes:take)); left -= take } }
+        for (e,m) in available(d,person,asOf:asOf) where sourceIDs == nil || sourceIDs!.contains(e.id) { let take = min(left,m); if take > 0 { result.append(Allocation(overtimeId:e.id,minutes:take)); left -= take } }
         guard left == 0 else { throw AppError.invalid("加班余额不足，不能超额销假。") }; return result
     }
     static func annual(_ d: CalendarData, _ person: String, _ year: String) -> (total:Int, used:Int, remaining:Int) {

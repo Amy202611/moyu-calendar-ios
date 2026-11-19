@@ -32,6 +32,23 @@ final class DomainTests: XCTestCase {
         XCTAssertThrowsError(try Roster.allocate(d,"p1",480,asOf:"2026-11-10"))
         d.entries.removeAll { $0.id == "ot" }; XCTAssertThrowsError(try Roster.validate(d))
     }
+    func testSelectedSourcesNeverConsumeUnselectedOvertime() throws {
+        var d = dual()
+        d.entries = [
+            Entry(id:"old",date:"2026-11-01",person:"p1",type:.overtime,minutes:480,note:"旧记录"),
+            Entry(id:"chosen",date:"2026-11-03",person:"p1",type:.overtime,minutes:240,note:"指定记录"),
+            Entry(id:"other",date:"2026-11-02",person:"p2",type:.overtime,minutes:480,note:"他人记录")
+        ]
+        let links = try Roster.allocate(d,"p1",240,asOf:"2026-11-10",sourceIDs:["chosen"])
+        XCTAssertEqual(links,[Allocation(overtimeId:"chosen",minutes:240)])
+        XCTAssertThrowsError(try Roster.allocate(d,"p1",480,asOf:"2026-11-10",sourceIDs:["chosen"]))
+        XCTAssertThrowsError(try Roster.allocate(d,"p1",240,asOf:"2026-11-10",sourceIDs:["other"]))
+        XCTAssertThrowsError(try Roster.allocate(d,"p1",240,asOf:"2026-11-02",sourceIDs:["chosen"]))
+        XCTAssertEqual(try Roster.allocate(d,"p1",240,asOf:"2026-11-10").first?.overtimeId,"old")
+        d.entries.append(Entry(id:"redeem",date:"2026-11-10",person:"p1",type:.leave,minutes:240,allocations:links))
+        try Roster.validate(d)
+        XCTAssertEqual(Roster.available(d,"p1",excluding:"redeem",asOf:"2026-11-10").first(where: { $0.0.id == "chosen" })?.1,240)
+    }
     func testAnnualHalfDayAndIndependentBalance() throws {
         var d = dual(); d.entries = [Entry(date:"2026-11-11",person:"p1",type:.annual,minutes:240,note:"半天年假")]
         try Roster.validate(d); XCTAssertEqual(Roster.annual(d,"p1","2026").remaining,4560)

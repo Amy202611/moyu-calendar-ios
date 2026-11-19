@@ -60,6 +60,8 @@ struct RecordEditor: View {
     @State private var hours: Double
     @State private var problem: String?
     @State private var deleting = false
+    @State private var manualSources = false
+    @State private var sources = Set<String>()
     init(entry: Entry) { _entry = State(initialValue:entry); _hours = State(initialValue:Double(entry.minutes)/60) }
     var body: some View {
         NavigationStack { Form {
@@ -72,12 +74,29 @@ struct RecordEditor: View {
                 Text("折合 \(number(hours/store.data.settings.hoursPerDay)) 天；最小15分钟。").font(.caption)
                 TextField("备注（最多200字）",text:$entry.note,axis:.vertical)
             }
-            if entry.type == .leave { Section { Text("按最早可用加班自动核销，保留加班日期和原备注。") } }
+            if entry.type == .leave {
+                Section("销假来源") {
+                    Toggle("手动指定加班记录",isOn:$manualSources)
+                    if manualSources {
+                        ForEach(Roster.available(store.data,entry.person,excluding:entry.id,asOf:min(entry.date,Day.today)),id: \.0.id) { overtime,remaining in
+                            Toggle(isOn:Binding(get:{ sources.contains(overtime.id) },set:{ selected in
+                                if selected { sources.insert(overtime.id) } else { sources.remove(overtime.id) }
+                            })) {
+                                VStack(alignment:.leading) {
+                                    Text(overtime.date+" · 可用 "+number(Double(remaining)/Double(store.data.unit))+"天")
+                                    if !overtime.note.isEmpty { Text(overtime.note).font(.caption) }
+                                }
+                            }
+                        }
+                        Text("只从选中的记录核销；余额不足会阻止保存。").font(.caption)
+                    } else { Text("按最早可用加班自动核销，保留加班日期和原备注。").font(.caption) }
+                }
+            }
             if store.data.entries.contains(where:{ $0.id == entry.id }) { Section { Button("删除记录",role:.destructive) { deleting = true } } }
         }.navigationTitle(entry.type.title)
         .toolbar {
             ToolbarItem(placement:.cancellationAction) { Button("取消") { dismiss() } }
-            ToolbarItem(placement:.confirmationAction) { Button("保存") { do { guard hours.isFinite, hours > 0, hours <= 24 else { throw AppError.invalid("时长应在0.25至24小时") }; let m = Int((hours*60).rounded()); guard m%15 == 0 else { throw AppError.invalid("请按15分钟递增") }; entry.minutes = m; try store.writeEntry(entry); dismiss() } catch { problem = error.localizedDescription } } }
+            ToolbarItem(placement:.confirmationAction) { Button("保存") { do { guard hours.isFinite, hours > 0, hours <= 24 else { throw AppError.invalid("时长应在0.25至24小时") }; let m = Int((hours*60).rounded()); guard m%15 == 0 else { throw AppError.invalid("请按15分钟递增") }; entry.minutes = m; try store.writeEntry(entry,sourceIDs:manualSources ? Array(sources) : nil); dismiss() } catch { problem = error.localizedDescription } } }
         }
         .confirmationDialog("删除记录？已核销的加班需先处理对应倒休。",isPresented:$deleting) { Button("删除",role:.destructive) { do { try store.delete(entry.id); dismiss() } catch { problem = error.localizedDescription } } }
         .alert("无法保存",isPresented:Binding(get:{ problem != nil },set:{ if !$0 { problem = nil } })) { Button("知道了",role:.cancel) {} } message: { Text(problem ?? "") } }

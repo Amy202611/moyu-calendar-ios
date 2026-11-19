@@ -24,6 +24,11 @@ def validate(path,widgets=False):
   registration_name=validate_registration_names(info)
   root=infos[0].rsplit("/",1)[0]
   localized_names=validate_localized_names(z,root)
+  if root+"/IconManifest.json" not in z.namelist():raise ValueError("Missing verified icon manifest")
+  icon_manifest=json.loads(z.read(root+"/IconManifest.json"))
+  if icon_manifest.get("sourceGitBlobSHA")!="a9c3b2515718a2ed779f5794a248d9a04ca489c6" or icon_manifest.get("placeholder") is not False:raise ValueError("Wrong app icon artwork")
+  icon_source=z.read(root+"/AppIcon.png")
+  if hashlib.sha256(icon_source).hexdigest()!=icon_manifest.get("sourceSHA256"):raise ValueError("App icon source checksum mismatch")
   if root+"/china2026.json" not in z.namelist():raise ValueError("Missing bundled Chinese holiday data")
   if json.loads(z.read(root+"/china2026.json")).get("year")!=2026:raise ValueError("Wrong bundled holiday year")
   if not info.get("CFBundleIcons",{}).get("CFBundlePrimaryIcon",{}).get("CFBundleIconFiles"):raise ValueError("Missing compiled app icon metadata")
@@ -68,6 +73,6 @@ def validate(path,widgets=False):
      if groups!=["group.com.banli.shift.shared"]:raise ValueError("Missing shared App Group entitlement")
   elif extensions:raise ValueError("Basic unsigned package unexpectedly contains an extension")
   if info["CFBundleIdentifier"]!="com.banli.shift":raise ValueError("Main identity changed")
-  return {"bundleIdentifier":info["CFBundleIdentifier"],"displayName":info.get("CFBundleDisplayName"),"registrationName":registration_name,"bundleName":info["CFBundleName"],"localizedDisplayNames":localized_names,"version":info["CFBundleShortVersionString"],"build":info["CFBundleVersion"],"minimumIOS":info.get("MinimumOSVersion"),"architecture":"arm64","platform":"iPhoneOS","unsignedBuild":not widgets,"signatureType":"ad-hoc-entitlements-carrier" if widgets else "unsigned","widgetExtensionIncluded":widgets,"sideStoreInstallationVerified":False,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
+  return {"bundleIdentifier":info["CFBundleIdentifier"],"displayName":info.get("CFBundleDisplayName"),"registrationName":registration_name,"bundleName":info["CFBundleName"],"localizedDisplayNames":localized_names,"version":info["CFBundleShortVersionString"],"build":info["CFBundleVersion"],"minimumIOS":info.get("MinimumOSVersion"),"architecture":"arm64","platform":"iPhoneOS","unsignedBuild":not widgets,"signatureType":"ad-hoc-entitlements-carrier" if widgets else "unsigned","widgetExtensionIncluded":widgets,"iconArtwork":icon_manifest,"sideStoreInstallationVerified":False,"sha256":hashlib.sha256(path.read_bytes()).hexdigest()}
 if __name__=="__main__":
  p=pathlib.Path(sys.argv[1]);widgets="--widgets" in sys.argv;r=validate(p,widgets=widgets);(p.parent/("widget-validation.json" if widgets else "ipa-validation.json")).write_text(json.dumps(r,ensure_ascii=False,indent=2),encoding="utf-8");print(json.dumps(r,ensure_ascii=False,indent=2))

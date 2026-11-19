@@ -69,7 +69,7 @@ struct CalendarWidgetView: View {
                         let date = String(format:"%04d-%02d-%02d",parts.year!,parts.month!,i-offset+1)
                         Link(destination:URL(string:"moyu-calendar://date/"+date)!) {
                             VStack(spacing:1) {
-                                Text(String(i-offset+1)).font(.system(size:13,weight:.semibold)).foregroundStyle(Color(widgetHex:rows[date]?.color ?? "#24364b"))
+                                Text(String(i-offset+1)).font(.system(size:13,weight:.semibold)).foregroundStyle(Color(widgetHex:rows[date].flatMap { badges($0).last?.color } ?? "#24364b"))
                                 if let day = rows[date] {
                                     Text(day.lunar).font(.system(size:7)).foregroundStyle(.secondary)
                                     let labels = badges(day).prefix(2).map(\.title).joined(separator:" ")

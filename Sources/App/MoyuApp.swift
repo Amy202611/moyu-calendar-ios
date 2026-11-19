@@ -75,7 +75,8 @@ struct MonthView: View {
             }.padding()
         }.background(Color(hex:"#f8f7f3")).navigationTitle("摸鱼日历")
         .toolbar { NavigationLink { PreferencesView() } label: { Image(systemName:"slider.horizontal.3") } }
-        .onChange(of:store.linkDay) { day in if let day { month = String(day.prefix(7)); selected = day } }
+        .onAppear { openLinkedDay() }
+        .onChange(of:store.linkDay) { _ in openLinkedDay() }
         .sheet(isPresented:$editDay) { DayEditor(day:selected,person:person == "all" ? "p1" : person) }
         .sheet(item:$entry) { RecordEditor(entry:$0) }
     }
@@ -101,6 +102,10 @@ struct MonthView: View {
             HStack { ForEach(Kind.allCases) { kind in Button("＋"+kind.title) { entry = Entry(date:selected,person:person == "all" ? "p1" : person,type:kind,minutes:store.data.unit/2) }.frame(maxWidth:.infinity).font(.subheadline) } }.buttonStyle(.bordered)
             Button("修改当天基础安排 / 添加值班") { editDay = true }.frame(maxWidth:.infinity)
         }.padding().frame(maxWidth:.infinity,alignment:.leading).background(.background,in:RoundedRectangle(cornerRadius:20))
+    }
+    private func openLinkedDay() {
+        guard let day = store.linkDay, Day.date(day) != nil else { return }
+        month = String(day.prefix(7)); selected = day; store.linkDay = nil
     }
     private func move(_ n: Int) {
         guard let d = Day.date(month+"-01"), let r = Day.calendar.date(byAdding:.month,value:n,to:d), Day.date(Day.key(r)) != nil else { return }

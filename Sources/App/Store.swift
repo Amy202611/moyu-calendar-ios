@@ -59,7 +59,10 @@ import UniformTypeIdentifiers
         let pending = await center.pendingNotificationRequests()
         guard generation == notificationGeneration else { return }
         center.removePendingNotificationRequests(withIdentifiers:pending.filter { $0.identifier.hasPrefix("moyu/") }.map(\.identifier))
-        guard reminders else { return }
+        guard reminders else {
+            center.removePendingNotificationRequests(withIdentifiers:pending.filter { $0.identifier.hasPrefix("moyu-snooze/") }.map(\.identifier))
+            return
+        }
         let authorization = await center.notificationSettings()
         guard generation == notificationGeneration, authorization.authorizationStatus == .authorized || authorization.authorizationStatus == .provisional else { return }
         let stop = UNNotificationAction(identifier:"stop",title:"关闭",options:[])
